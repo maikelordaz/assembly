@@ -39,7 +39,7 @@ object "ERC1155" {
             }
             case 0x4e1273f4 {
                 // balanceOfBatch(address[],uint256[])
-
+                balanceOfBatch()
             }
             case 0x2eb2c2d6 {
                 // safeBatchTransferFrom(address, address, uint256[],uint256[],bytes)
@@ -80,6 +80,36 @@ object "ERC1155" {
                     let x := calldataload(offset)
                     mstore8(add(0x00, i), byte(0, x))
                 }
+            }
+
+            function balanceOfBatch() {
+                let addresses := add(0x04, calldataload(0x04))
+                let tekenIds := add(0x04, calldataload(0x24))
+                let addressesLength := calldataload(addresses)
+                let tokenIdsLength := calldataload(tokenIds)
+
+                // Lengths must be equal
+                if iszero(eq(addressesLength, tokenIdsLength)) {
+                    revert(0, 0)
+                }
+
+                // Skip the length, go to the first element
+                addresses := add(addresses, 0x20)
+                tokenIds := add(tokenIds, 0x20)
+
+                // Loop the arrays
+                for { let i:= 0 } lt(i, addressesLength) { i := add(i, 1) } {
+                    let addressToCheck := calldataload(addresses)
+                    let tokenId := calldataload(tokenIds)
+                    let balance := balanceOf(addressToCheck, tokenId)
+                    mstore(add(0x40, mul(i, 0x20)), balance)
+                    addresses := add(addresses, 0x20)
+                    tokenIds := add(tokenIds, 0x20)
+                }
+
+                mstore(0x00, 0x20)
+                mstore(0x20, addressesLength)
+                return(0x00, add(0x40, mul(addressesLength, 0x20))) // pointer, length and data
             }
 
             // ============ Decoding ============ //
