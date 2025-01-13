@@ -1,51 +1,124 @@
+/// ERC1155 implementation in Yul
+
 object "ERC1155" {
     code{
-        sstore(0, caller()) // Owner at slot 0
-        datacopy(0, dtaoffset("Runtime"), datasize("Runtime"))
+        // slot0: owner
+        sstore(0, caller()) 
+
+        // Deployment
+        datacopy(0, dataoffset("Runtime"), datasize("Runtime"))
         return(0, datasize("Runtime"))
     }
 
     object "Runtime" {
         code {
+            mstore(0x40, 0x80) // Free memory pointer
+
+            // Dont accept ether
             require(iszero(callvalue()))
 
             // ============ Function dispatcher ============ //
             switch selector()
-            case 0x156e29f6 {
-                // mint(address to,uint256 id,uint256 value)
-                mint(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
-                returnTrue()
-            }
+
+            // ============ Balances ============ //
             case 0x00fdd58e {
                 // balanceOf(address user,uint256 id)
                 returnUint(balanceOf(decodeAddress(0), decodeAsUint(1)))
 
             }
-            case 0xa22cb465 {
-                // setApprovalForAll(address spender,bool)
-                setApprovalForAll(decodeAsAddress(0), decodeAsUint(1))
-                returnTrue()
+            case 0x4e1273f4 {
+                // balanceOfBatch(address[],uint256[])
+                balanceOfBatch(decodeAsUint(0), decodeAsUint(1))
             }
+
+            // ============ Approvals ============ //
             case 0xe985e9c5 {
                 // isApprovedForAll(address owner, address spender)
                 returnUint(isApprovedForAll(decodeAsAddress(0), decodeAsAddress(1)))
 
             }
+            case 0xa22cb465 {
+                // setApprovalForAll(address spender,bool approved)
+                setApprovalForAll(decodeAsAddress(0), decodeAsBool(1))
+            }
+
+            // ============ Transfers ============ //
             case 0xf242432a {
                 // safeTransferFrom(address token, address to, uint256 id,uint256 amount, bytes data)
-                safeTransferFrom(decodeAsAddress(0), decodeAssAddress(1), decodeAsUint(2), decodeAsUint(3))
-                returnTrue()
-
-            }
-            case 0x4e1273f4 {
-                // balanceOfBatch(address[],uint256[])
-                balanceOfBatch()
+                safeTransferFrom(decodeAsAddress(0), decodeAssAddress(1), decodeAsUint(2), decodeAsUint(3), decodeAsUint(4))
             }
             case 0x2eb2c2d6 {
                 // safeBatchTransferFrom(address, address, uint256[],uint256[],bytes)
-                safeBatchTransferFrom(decodeAsAddress(0), decodeAsAddress(1))
-            }            
+                safeBatchTransferFrom(decodeAsAddress(0), decodeAsAddress(1), decodeAsUint(2), decodeAsUint(3), decodeAsUint(4))
+            }
+
+            // ============ Minting ============ //
+            case 0x731133e9 {
+                // mint(address to,uint256 id,uint256 value, bytes data)
+                mint(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2), decodeAsUint(3))
+            }
+            case 0x1f7fdffa {
+                // mintBatch(address to,uint256[] id,uint256[] value, bytes data)
+                mintBatch(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2), decodeAsUint(3))
+            }
+
+            // ============ Burning ============ //
+            case 0xf5298aca {
+                // burn(address to,uint256 id,uint256 value)
+                burn(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
+            }
+            case 0x6b20c454 {
+                // burnBatch(address to,uint256[] id,uint256[] value)
+                burnBatch(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
+            }
+
+            // ============ Misc ============ //
+            case 0x01ffc9a7 {
+                // supportsInterface(bytes4 interfaceID)
+                returnBool(supportsInterface())
+            }
+            case 0x0e89341c {
+                // uri(uint256)
+                uri(decodeAsUint(0))
+            }
+            case 0x02fe5305 {
+                // setURI(string)
+                setURI(decodeAsUint(0))
+            }
+         
             default { revert(0, 0) }
+
+            // ============ Main Functions ============ //
+
+            // ============ Misc ============ //
+
+            function uri(tokenId) -> {
+                let oldMemoryPointer := mload(0x40)
+                let memoryPointer := oldMemoryPointer
+
+                mstore(memoryPointer, 0x20)
+                memoryPointer := add(memoryPointer, 0x20)
+
+                let uriLength := sload(uriLengthStoragePosition())
+                mstore(memoryPointer, uriLength)
+                memoryPointer := add(memoryPointer, 0x20)
+
+                let bound := div(uriLength, 0x20)
+                if mod(bound, 0x20) {
+                    bound := add(bound, 1)
+                }
+
+                mstore(0x00, uriLength)
+                let firstSlot := keccak256(0x00, 0x20)
+
+                for { let i := 0 } lt(i, bound) { i := add(i, 1) } {
+                    let str := sload(add(firstSlot, i))
+                    mstore(memoryPointer, str)
+                    memoryPointer := add(memoryPointer, 0x20)
+                }
+
+                return(oldMemoryPointer, sub(memoryPointer, oldMemoryPointer))
+            }
 
             function mint(to, tokenId, amount) {
                 require(calledByOwner())
@@ -206,6 +279,14 @@ object "ERC1155" {
 
             function ownerPos() -> result {
                 result := 0
+            }
+
+            function uriPos() -> result {
+                result := 0x20
+            }
+
+            function uriLengthStoragePosition() -> result {
+                result := 1
             }
 
             function balanceOfStorageOffset(account, tokenId) -> offset {
