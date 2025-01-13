@@ -185,6 +185,17 @@ object "ERC1155" {
                 emitEvent(signatureHash, operator, from, to, tokenId, amount)
             }
 
+            function emitTransferBatch(operator, from, to) {
+                let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
+                emitEvent(signatureHash, operator, from, to, 0, 0) // how to pass arrays?
+            }
+      
+            function emitApprovalForAll(owner, operator, approved) {
+                let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
+                emitEvent(signatureHash, owner, operator, 0, approved, 0)
+            }
+
+
             function emitEvent(signatureHash, indexed_1, indexed_2, indexed_3, nonIndexed_1, nonIndexed_2) {
                 mstore(0, nonIndexed_1)
                 mstore(0x20, nonIndexed_2)
