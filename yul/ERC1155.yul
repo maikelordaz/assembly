@@ -43,7 +43,7 @@ object "ERC1155" {
             }
             case 0x2eb2c2d6 {
                 // safeBatchTransferFrom(address, address, uint256[],uint256[],bytes)
-
+                safeBatchTransferFrom(decodeAsAddress(0), decodeAsAddress(1))
             }            
             default { revert(0, 0) }
 
@@ -110,6 +110,40 @@ object "ERC1155" {
                 mstore(0x00, 0x20)
                 mstore(0x20, addressesLength)
                 return(0x00, add(0x40, mul(addressesLength, 0x20))) // pointer, length and data
+            }
+
+            function safeBatchTransferFrom(from, to) {
+                revertIfZeroAddress(to)
+
+                if iszero(or(eq(from, caller()), isApprovedForAll(from, caller()))) {
+                    revert(0, 0)
+                }
+
+                let tokenIds := add(0x04, calldataload(0x44))
+                let amounts := add(0x04, calldataload(0x64))
+                let tokenIdsLength := calldataload(tokenIds)
+                let amountsLength := calldataload(amounts)
+
+                // Lengths must be equal
+                if iszero(eq(tokenIdsLength, amountsLength)) {
+                    revert(0, 0)
+                }
+
+                // Skip the length, go to the first element
+                tokenIds := add(tokenIds, 0x20)
+                amounts := add(amounts, 0x20)
+
+                // Loop the arrays
+                for { let i := 0 } lt(i, tokenIdsLength) { i := add(i, 1) } {
+                    let tokenId := calldataload(tokenIds)
+                    let amount := calldataload(amounts)
+
+                    deductFromBalance(from, tokenId, amount)
+                    addToBalance(to, tokenId, amount)
+
+                    tokenIds := add(tokenIds, 0x20)
+                    amounts := add(amounts, 0x20)
+                }
             }
 
             // ============ Decoding ============ //
