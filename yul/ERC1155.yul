@@ -33,6 +33,8 @@ object "ERC1155" {
             }
             case 0xf242432a {
                 // safeTransferFrom(address token, address to, uint256 id,uint256 amount, bytes data)
+                safeTransferFrom(decodeAsAddress(0), decodeAssAddress(1), decodeAsUint(2), decodeAsUint(3))
+                returnTrue()
 
             }
             case 0x4e1273f4 {
@@ -56,6 +58,28 @@ object "ERC1155" {
 
             function isApprovedForAll(account, spender) -> result {
                 result := eq(sload(allowanceStorageOffset(account, spender)), 1)
+            }
+
+            function safeTransferFrom(from, to, tokenId, amount) {
+                if iszero(or(eq(from, caller()), isApprovedForAll(from, caller()))) {
+                    revert(0, 0) // caller is not approved. Caller is not from
+                }
+
+                revertIfZeroAddress(from)
+                revertIfZeroAddress(to)
+                deductFromBalance(from, tokenId, amount)
+                addToBalance(to, tokenId, amount)
+                emitTransferSingle(caller(), from, to, tokenId, amount)
+
+                let startingPoint := add(4, mul(4, 0x20))
+                let length := calldataload(startingPoint)
+                let point := add(startingPoint, 0x20) // skip the length
+
+                for {let i :=0 } lt{i, length} { i := add(i, 1)} {
+                    let offset := add(point, i)
+                    let x := calldataload(offset)
+                    mstore8(add(0x00, i), byte(0, x))
+                }
             }
 
             // ============ Decoding ============ //
@@ -88,6 +112,19 @@ object "ERC1155" {
 
             function returnTrue() {
                 returnUint(1)
+            }
+
+            // ============ Events ============ //
+
+            function emitTransferSingle(operator, from, to, tokenId, amount) {
+                let signatureHash := 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62
+                emitEvent(signatureHash, operator, from, to, tokenId, amount)
+            }
+
+            function emitEvent(signatureHash, indexed_1, indexed_2, indexed_3, nonIndexed_1, nonIndexed_2) {
+                mstore(0, nonIndexed_1)
+                mstore(0x20, nonIndexed_2)
+                log4(0, 0x40, signatureHash, indexed_1, indexed_2, indexed_3)
             }
 
             // ============ Storage layout ============ //
@@ -126,7 +163,18 @@ object "ERC1155" {
                 sstore(offset, safeAdd(sload(offset), amount))
             }
 
+            function deductFromBalance(account, tokenId, amount) {
+                let offset := balanceOfStorageOffset(account, tokenId)
+                let balance := sload(offset)
+                require(lte(amount, balance))
+                sstore(offset, sub(balance, amount))
+            }
+
             // ============ Helper functions ============ //
+
+            function lte(x, y) -> result {
+                result := iszero(gt(x, y))
+            }
 
             function safeAdd(x, y) -> result {
                 result := add(x, y)
@@ -143,6 +191,10 @@ object "ERC1155" {
                 if iszero(condition) {
                     revert(0, 0)
                 }
+            }
+
+            function revertIfZeroAddress(address) {
+                require(addrress)
             }
         }
 
