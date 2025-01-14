@@ -206,8 +206,93 @@ object "ERC1155" {
                 _batchTransferChecks(spender, from, to, tokenIds, amounts, dataOffset)
             }
 
+            // ============ Minting ============ //
+
+            function mint(to, tokenId, amount, dataOffset) {
+                revertIfZeroAddress(to)
+
+                _addToBalance(to, tokenId, amount)
+
+                emitTransferSingle(caller(), 0, to, tokenId, amount)
+
+                _transferChecks(caller(), 0, to, tokenId, amount, dataOffset)
+            }
+
+            function mintBatch(to, tokenIds, amounts, dataOffset) {
+                revertIfZeroAddress(to)
+
+                let tokenIdsLength := calldataload(add(0x04, tokenIds))
+                let amountsLength := calldataload(add(0x04, amounts))
+
+                // Lengths must be equal
+                if iszero(eq(tokenIdsLength, amountsLength)) {
+                    revert(0, 0)
+                }
+
+                // Skip the length, go to the first element
+                let tokenIdsStartingPoint := add(tokenIds, 0x24)
+                let amountsStartingPoint := add(amounts, 0x24)
+
+                // Loop the arrays
+                for { let i := 0 } lt(i, tokenIdsLength) { i := add(i, 1) } {
+                    let tokenId := calldataload(add(tokenIdsStartingPoint, mul(i, 0x20)))
+                    let amount := calldataload(add(amountsStartingPoint, mul(i, 0x20)))
+
+                    _addToBalance(to, tokenId, amount)
+                }
+
+                emitTransferBatch(caller(), 0, to, tokenIds, amounts)
+
+                _batchTransferChecks(caller(), 0, to, tokenIds, amounts, dataOffset)                
+            }
+
+            // ============ Burning ============ //
+
+            function burn(from, tokenId, amount) {
+                revertIfZeroAddress(from)
+
+                _deductFromBalance(from, tokenId, amount)
+
+                emitTransferSingle(caller(), from, 0, tokenId, amount)
+            }
+
+            function burnBatch(from, tokenIds, amounts) {
+                revertIfZeroAddress(from)
+
+                let tokenIdsLength := calldataload(add(0x04, tokenIds))
+                let amountsLength := calldataload(add(0x04, amounts))
+
+                // Lengths must be equal
+                if iszero(eq(tokenIdsLength, amountsLength)) {
+                    revert(0, 0)
+                }
+
+                // Skip the length, go to the first element
+                let tokenIdsStartingPoint := add(tokenIds, 0x24)
+                let amountsStartingPoint := add(amounts, 0x24)
+
+                // Loop the arrays
+                for { let i := 0 } lt(i, tokenIdsLength) { i := add(i, 1) } {
+                    let tokenId := calldataload(add(tokenIdsStartingPoint, mul(i, 0x20)))
+                    let amount := calldataload(add(amountsStartingPoint, mul(i, 0x20)))
+
+                    _deductFromBalance(from, tokenId, amount)
+                }
+
+                emitTransferBatch(caller(), 0, to, tokenIds, amounts)               
+            }
 
             // ============ Misc ============ //
+
+            function supportsInterface() -> result {
+                let interfaceId := calldataload(0x04)
+
+                let IERC1155InterfaceId := 0xd9b67a2600000000000000000000000000000000000000000000000000000000
+                let IERC1155MetdataURIInterfaceId := 0xd9b67a2600000000000000000000000000000000000000000000000000000000
+                let IERC165InterfaceId := 0x01ffc9a700000000000000000000000000000000000000000000000000000000
+
+                result := or(eq(interfaceId, IERC1155InterfaceId), or(eq(interfaceId, IERC1155MetdataURIInterfaceId), eq(interfaceId, IERC165InterfaceId)))
+            }
 
             function uri(tokenId) -> {
                 let oldMemoryPointer := mload(0x40)
@@ -237,114 +322,22 @@ object "ERC1155" {
                 return(oldMemoryPointer, sub(memoryPointer, oldMemoryPointer))
             }
 
-            function mint(to, tokenId, amount) {
-                require(calledByOwner())
-                addToBalance(to, tokenId, amount)
-            }
+            function setURI(strOffset) {
+                let oldStringLength := sload(uriLengthStoragePosition())
+                mstore(0x00, oldStringLength)
+                let oldStringFirstSlot := keccak256(0x00, 0x20)
 
-            // ============ Decoding ============ //
+                if oldStringLength {
+                    let bound := div(oldStringLength, 0x20)
 
-            function selector() -> sel {
-                sel := div(calldataload(0), 0x100000000000000000000000000000000000000000000000000000000)
-            }
+                    if mod(oldStringLength, 0x20) {
+                        bound := add(bound, 1)
+                    }
 
-            function decodeAsUint(offset) -> result {
-                let x := add(4, mul(offset, 0x20)) // skip selector
-                if lt(calldatasize(), add(x, 0x20)) {
-                    revert(0, 0) // out of bounds
+                    for { let i := 0 } lt(i, bound) { i := add(i, 1) } {
+                        sstore(add(oldStringFirstSlot, i), 0)
+                    }
                 }
-                result := calldataload(x) // load 32 bytes
-            }
-
-            function decodeAsAddress(offset) -> result {
-                result := decodeAsUint(offset)
-                if iszero(iszero(and(v, not(0xffffffffffffffffffffffffffffffffffffffff)))) {
-                    revert(0, 0)
-                }
-            }
-
-            // ============ Encoding ============ //
-
-            function returnUint(x) {
-                mstore(0, x)
-                return(0, 0x20)
-            }
-
-            function returnTrue() {
-                returnUint(1)
-            }
-
-            // ============ Events ============ //
-
-            function emitTransferSingle(spender, from, to, tokenId, amount) {
-                // TransferSingle(address indexed _operator, address indexed _from, address indexed _to, uint256 _id, uint256 _value)
-                let signatureHash := 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62
-                mstore(0x00, tokenId)
-                mstore(0x20, amount)
-                log4(0x00, 0x40, signatureHash, spender, from, to)
-            }
-
-            function emitTransferBatch(spender, from, to, tokenIds, amounts) {
-                // TransferBatch(address indexed _operator, address indexed _from, address indexed _to, uint256[] _ids, uint256[] _values)
-                let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
-                
-                let oldMemoryPointer := mload(0x40)
-                let memoryPointer := oldMemoryPointer
-
-                let tokenIdsOffsetPointer := memoryPointer
-                let amountsOffsetPointer := add(tokenIdsPointer, 0x20)
-
-                mstore(tokenIdsPointer, 0x40)
-
-                let amountsPointer := copyArrayToMemory(add(memoryPointer, 0x40), tokenIds)
-
-                mstore(amountsOffsetPointer, sub(amountsPointer, memoryPointer))
-
-                let endMemoryPointer := copyArrayToMemory(amountsPointer, amounts)
-
-                log4(oldMemoryPointer, sub(endMemoryPointer, oldMemoryPointer), signatureHash, spender, from, to)
-
-                mstore(0x40, endMemoryPointer)
-            }
-      
-            function emitApprovalForAll(owner, spender, approved) {
-                // event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved)
-                let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
-                mstore(0x00, approved)
-                log3(0x00, 0x20, signatureHash, owner, spender)
-            }
-
-            // ============ Storage layout ============ //
-
-            function ownerPos() -> result {
-                result := 0
-            }
-
-            function uriPos() -> result {
-                result := 0x20
-            }
-
-            function uriLengthStoragePosition() -> result {
-                result := 1
-            }
-
-            function balanceOfStorageOffset(account, tokenId) -> offset {
-                // We hash account, tokenId
-                mstore(0, account)
-                mstore(0x20, tokenId)
-                offset := keccak256(0, 0x40)
-            }
-
-            function allowanceStorageOffset(account, spender) -> offset {
-                mstore(0, account)
-                mstore(0x20, spender)
-                offset := keccak256(0, 0x40)
-            }
-
-            // ============ Storage access ============ //
-
-            function owner() -> result {
-                result := sload(ownerPos())
             }
 
             // ============ Internal functions ============ //
@@ -440,6 +433,87 @@ object "ERC1155" {
                 
             }
 
+            // ============ Decoding ============ //
+
+            function selector() -> sel {
+                sel := div(calldataload(0), 0x100000000000000000000000000000000000000000000000000000000)
+            }
+
+            function decodeAsUint(offset) -> result {
+                let x := add(4, mul(offset, 0x20)) // skip selector
+                if lt(calldatasize(), add(x, 0x20)) {
+                    revert(0, 0) // out of bounds
+                }
+                result := calldataload(x) // load 32 bytes
+            }
+
+            function decodeAsAddress(offset) -> result {
+                result := decodeAsUint(offset)
+                if iszero(iszero(and(v, not(0xffffffffffffffffffffffffffffffffffffffff)))) {
+                    revert(0, 0)
+                }
+            }
+
+            function decodeAsBool(offset) -> result {
+                let x := decodeAsUint(offset)
+
+                if eq(val, 0x0000000000000000000000000000000000000000000000000000000000000000) {
+                    result := x
+                    leave
+                }
+
+                if eq(val, 0x0000000000000000000000000000000000000000000000000000000000000001) {
+                    result := x
+                    leave
+                }
+
+                revert(0, 0)
+            }
+
+            // ============ Encoding ============ //
+
+            function returnUint(x) {
+                mstore(0, x)
+                return(0, 0x20)
+            }
+
+            function returnBool(value) {
+                returnUint(value)
+            }
+
+            // ============ Storage layout ============ //
+
+            function ownerPos() -> result {
+                result := 0
+            }
+
+            function uriPos() -> result {
+                result := 0x20
+            }
+
+            function uriLengthStoragePosition() -> result {
+                result := 1
+            }
+
+            function balanceOfStorageOffset(account, tokenId) -> offset {
+                // We hash account, tokenId
+                mstore(0, account)
+                mstore(0x20, tokenId)
+                offset := keccak256(0, 0x40)
+            }
+
+            function allowanceStorageOffset(account, spender) -> offset {
+                mstore(0, account)
+                mstore(0x20, spender)
+                offset := keccak256(0, 0x40)
+            }
+
+            // ============ Storage access ============ //
+
+            function owner() -> result {
+                result := sload(ownerPos())
+            }            
+
             // ============ Helper functions ============ //
 
             function lte(x, y) -> result {
@@ -494,8 +568,46 @@ object "ERC1155" {
             function revertIfZeroAddress(address) {
                 require(addrress)
             }
+
+            // ============ Events ============ //
+
+            function emitTransferSingle(spender, from, to, tokenId, amount) {
+                // TransferSingle(address indexed _operator, address indexed _from, address indexed _to, uint256 _id, uint256 _value)
+                let signatureHash := 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62
+                mstore(0x00, tokenId)
+                mstore(0x20, amount)
+                log4(0x00, 0x40, signatureHash, spender, from, to)
+            }
+
+            function emitTransferBatch(spender, from, to, tokenIds, amounts) {
+                // TransferBatch(address indexed _operator, address indexed _from, address indexed _to, uint256[] _ids, uint256[] _values)
+                let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
+                
+                let oldMemoryPointer := mload(0x40)
+                let memoryPointer := oldMemoryPointer
+
+                let tokenIdsOffsetPointer := memoryPointer
+                let amountsOffsetPointer := add(tokenIdsPointer, 0x20)
+
+                mstore(tokenIdsPointer, 0x40)
+
+                let amountsPointer := copyArrayToMemory(add(memoryPointer, 0x40), tokenIds)
+
+                mstore(amountsOffsetPointer, sub(amountsPointer, memoryPointer))
+
+                let endMemoryPointer := copyArrayToMemory(amountsPointer, amounts)
+
+                log4(oldMemoryPointer, sub(endMemoryPointer, oldMemoryPointer), signatureHash, spender, from, to)
+
+                mstore(0x40, endMemoryPointer)
+            }
+      
+            function emitApprovalForAll(owner, spender, approved) {
+                // event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved)
+                let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
+                mstore(0x00, approved)
+                log3(0x00, 0x20, signatureHash, owner, spender)
+            }           
         }
-
     }
-
 }
