@@ -1,39 +1,39 @@
-// SPDX-License-Identifier: MIT
-
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
-import {Script} from "forge-std/Script.sol";
+import "forge-std/Test.sol";
 
-contract DeployErc1155 is Script {
-    error DeployErc1155__DeployFailed();
-
-    function run() external {
-        _deployErc1155("Erc1155");
-    }
-
-    function _deployErc1155(
-        string memory _fileName
-    ) internal returns (address) {
-        string memory bash = string.concat(
+contract DeployERC1155 is Test {
+    ///@notice Compiles a Yul contract and returns the address that the contract was deployed to
+    ///@notice If deployment fails, an error will be thrown
+    ///@param fileName - The file name of the Yul contract. For example, the file name for "Example.yul" is "Example"
+    ///@return deployedAddress - The address that the contract was deployed to
+    function deployContract(string memory fileName) public returns (address) {
+        string memory bashCommand = string.concat(
             'cast abi-encode "f(bytes)" $(solc --strict-assembly yul/',
-            string.concat(_fileName, ".yul --bin | tail -1)")
+            string.concat(fileName, ".yul --bin | tail -1)")
         );
 
-        string[] memory commands = new string[](3);
-        commands[0] = "bash";
-        commands[1] = "-c";
-        commands[2] = bash;
+        string[] memory inputs = new string[](3);
+        inputs[0] = "bash";
+        inputs[1] = "-c";
+        inputs[2] = bashCommand;
 
-        bytes memory bytecode = abi.decode(vm.ffi(commands), (bytes));
+        bytes memory bytecode = abi.decode(vm.ffi(inputs), (bytes));
 
-        address addr;
-
+        ///@notice deploy the bytecode with the create instruction
+        address deployedAddress;
         assembly {
-            addr := create(0, add(bytecode, 0x20), mload(bytecode))
+            deployedAddress := create(0, add(bytecode, 0x20), mload(bytecode))
         }
 
-        require(addr != address(0), DeployErc1155__DeployFailed());
+        ///@notice check that the deployment was successful
+        require(
+            deployedAddress != address(0),
+            "YulDeployer could not deploy contract"
+        );
 
-        return addr;
+        ///@notice return the address that the contract was deployed to
+        return deployedAddress;
     }
 }

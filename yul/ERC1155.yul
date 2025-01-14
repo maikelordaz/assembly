@@ -64,11 +64,11 @@ object "ERC1155" {
 
             // ============ Burning ============ //
             case 0xf5298aca {
-                // burn(address to,uint256 id,uint256 value)
+                // burn(address from, uint256 id,uint256 value)
                 burn(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
             }
             case 0x6b20c454 {
-                // burnBatch(address to,uint256[] id,uint256[] value)
+                // burnBatch(address from, uint256[] id,uint256[] value)
                 burnBatch(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
             }
 
