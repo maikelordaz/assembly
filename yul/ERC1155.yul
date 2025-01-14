@@ -90,6 +90,123 @@ object "ERC1155" {
 
             // ============ Main Functions ============ //
 
+            // ============ Balances ============ //
+
+            function balanceOf(account, tokenId) -> balance {
+                if require(account) {
+                    revertIfZeroAddress(account)
+                }
+
+                balance := sload(balanceOfStorageOffset(account, tokenId))
+            }
+
+            function balanceOfBatch(addresses, tokenIds) {
+                let addressesLength := calldataload(add(0x04, addresses))
+                let tokenIdsLength := calldataload(add(0x04, tokenIds))
+
+                // Lengths must be equal
+                if iszero(eq(addressesLength, tokenIdsLength)) {
+                    revert(0, 0)
+                }
+
+                let memoryPointer := mload(0x80)
+                mstore(memoryPointer, 0x20) // array length/offset
+                memoryPointer := add(memoryPointer, 0x20)
+
+                mstore(memoryPointer, addressesLength)
+                memoryPointer := add(memoryPointer, 0x20)
+
+                // Skip the length, go to the first element
+                let addressesStartingPoint := add(addresses, 0x24)
+                let tokenIdsStartingPoint := add(tokenIds, 0x24)
+
+                // Loop the arrays
+                for { let i:= 0 } lt(i, addressesLength) { i := add(i, 1) } {
+                    let addressToCheck := calldataload(add(addressesStartingPoint, mul(i, 0x20)))
+                    let tokenId := calldataload(add(tokenIdsStartingPoint, mul(i, 0x20)))
+                    mstore(memoryPointer, balanceOf(addressToCheck, tokenId)) // store the iteration element
+                    memoryPointer := add(memoryPointer, 0x20) 
+                }
+
+                return(0x80, sub(memoryPointer, 0x80))
+            }
+
+            // ============ Approvals ============ //
+
+            function isApprovedForAll(account, spender) -> result {
+                let offset := allowanceStorageOffset(account, spender)
+                result := sload(offset)
+            }
+
+            function setApprovalForAll(spender, approved) {
+                if require(iszero(eq(caller(), spender))) {
+                    revert(0, 0)
+                }
+
+                let offset := allowanceStorageOffset(caller(), spender)
+                sstore(offset, approved)
+                emitApprovalForAll(caller(), spender, approved)
+            }
+
+            // ============ Transfers ============ //
+
+            function safeTransferFrom(from, to, tokenId, amount, dataOffset) {
+                let spender := caller()
+
+                if iszero(or(eq(from, spender), isApprovedForAll(from, spender))) {
+                    revert(0, 0) // caller is not approved. Caller is not from
+                }
+
+                revertIfZeroAddress(from)
+                revertIfZeroAddress(to)
+
+                let fromBalance := sload(balanceOfStorageOffset(from, tokenId))
+
+                // Update balances
+                _deductFromBalance(from, tokenId, amount)
+                _addToBalance(to, tokenId, amount)
+                
+                emitTransferSingle(caller(), from, to, tokenId, amount)
+
+                _transferChecks(spender, from, to, tokenId, amount, dataOffset)
+            }
+
+            function safeBatchTransferFrom(from, to, tokenIds, amounts, dataOffset) {
+                revertIfZeroAddress(to)
+
+                let spender := caller()
+
+                if iszero(or(eq(from, spender), isApprovedForAll(from, spender))) {
+                    revert(0, 0)
+                }
+
+                let tokenIdsLength := calldataload(add(0x04, tokenIds))
+                let amountsLength := calldataload(add(0x04, amounts))
+
+                // Lengths must be equal
+                if iszero(eq(tokenIdsLength, amountsLength)) {
+                    revert(0, 0)
+                }
+
+                // Skip the length, go to the first element
+                let tokenIdsStartingPoint := add(tokenIds, 0x24)
+                let amountsStartingPoint := add(amounts, 0x24)
+
+                // Loop the arrays
+                for { let i := 0 } lt(i, tokenIdsLength) { i := add(i, 1) } {
+                    let tokenId := calldataload(add(tokenIdsStartingPoint, mul(i, 0x20)))
+                    let amount := calldataload(add(amountsStartingPoint, mul(i, 0x20)))
+
+                    _deductFromBalance(from, tokenId, amount)
+                    _addToBalance(to, tokenId, amount)
+                }
+
+                emitTransferBatch(spender, from, to, tokenIds, amounts)
+
+                _batchTransferChecks(spender, from, to, tokenIds, amounts, dataOffset)
+            }
+
+
             // ============ Misc ============ //
 
             function uri(tokenId) -> {
@@ -123,100 +240,6 @@ object "ERC1155" {
             function mint(to, tokenId, amount) {
                 require(calledByOwner())
                 addToBalance(to, tokenId, amount)
-            }
-
-            function setApprovalForAll(spender, approved) {
-                sstore(allowanceStorageOffset(caller(), spender), approved)
-            }
-
-            function isApprovedForAll(account, spender) -> result {
-                result := eq(sload(allowanceStorageOffset(account, spender)), 1)
-            }
-
-            function safeTransferFrom(from, to, tokenId, amount) {
-                if iszero(or(eq(from, caller()), isApprovedForAll(from, caller()))) {
-                    revert(0, 0) // caller is not approved. Caller is not from
-                }
-
-                revertIfZeroAddress(from)
-                revertIfZeroAddress(to)
-                deductFromBalance(from, tokenId, amount)
-                addToBalance(to, tokenId, amount)
-                emitTransferSingle(caller(), from, to, tokenId, amount)
-
-                let startingPoint := add(4, mul(4, 0x20))
-                let length := calldataload(startingPoint)
-                let point := add(startingPoint, 0x20) // skip the length
-
-                for {let i :=0 } lt{i, length} { i := add(i, 1)} {
-                    let offset := add(point, i)
-                    let x := calldataload(offset)
-                    mstore8(add(0x00, i), byte(0, x))
-                }
-            }
-
-            function balanceOfBatch() {
-                let addresses := add(0x04, calldataload(0x04))
-                let tekenIds := add(0x04, calldataload(0x24))
-                let addressesLength := calldataload(addresses)
-                let tokenIdsLength := calldataload(tokenIds)
-
-                // Lengths must be equal
-                if iszero(eq(addressesLength, tokenIdsLength)) {
-                    revert(0, 0)
-                }
-
-                // Skip the length, go to the first element
-                addresses := add(addresses, 0x20)
-                tokenIds := add(tokenIds, 0x20)
-
-                // Loop the arrays
-                for { let i:= 0 } lt(i, addressesLength) { i := add(i, 1) } {
-                    let addressToCheck := calldataload(addresses)
-                    let tokenId := calldataload(tokenIds)
-                    let balance := balanceOf(addressToCheck, tokenId)
-                    mstore(add(0x40, mul(i, 0x20)), balance)
-                    addresses := add(addresses, 0x20)
-                    tokenIds := add(tokenIds, 0x20)
-                }
-
-                mstore(0x00, 0x20)
-                mstore(0x20, addressesLength)
-                return(0x00, add(0x40, mul(addressesLength, 0x20))) // pointer, length and data
-            }
-
-            function safeBatchTransferFrom(from, to) {
-                revertIfZeroAddress(to)
-
-                if iszero(or(eq(from, caller()), isApprovedForAll(from, caller()))) {
-                    revert(0, 0)
-                }
-
-                let tokenIds := add(0x04, calldataload(0x44))
-                let amounts := add(0x04, calldataload(0x64))
-                let tokenIdsLength := calldataload(tokenIds)
-                let amountsLength := calldataload(amounts)
-
-                // Lengths must be equal
-                if iszero(eq(tokenIdsLength, amountsLength)) {
-                    revert(0, 0)
-                }
-
-                // Skip the length, go to the first element
-                tokenIds := add(tokenIds, 0x20)
-                amounts := add(amounts, 0x20)
-
-                // Loop the arrays
-                for { let i := 0 } lt(i, tokenIdsLength) { i := add(i, 1) } {
-                    let tokenId := calldataload(tokenIds)
-                    let amount := calldataload(amounts)
-
-                    deductFromBalance(from, tokenId, amount)
-                    addToBalance(to, tokenId, amount)
-
-                    tokenIds := add(tokenIds, 0x20)
-                    amounts := add(amounts, 0x20)
-                }
             }
 
             // ============ Decoding ============ //
@@ -253,26 +276,42 @@ object "ERC1155" {
 
             // ============ Events ============ //
 
-            function emitTransferSingle(operator, from, to, tokenId, amount) {
+            function emitTransferSingle(spender, from, to, tokenId, amount) {
+                // TransferSingle(address indexed _operator, address indexed _from, address indexed _to, uint256 _id, uint256 _value)
                 let signatureHash := 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62
-                emitEvent(signatureHash, operator, from, to, tokenId, amount)
+                mstore(0x00, tokenId)
+                mstore(0x20, amount)
+                log4(0x00, 0x40, signatureHash, spender, from, to)
             }
 
-            function emitTransferBatch(operator, from, to) {
+            function emitTransferBatch(spender, from, to, tokenIds, amounts) {
+                // TransferBatch(address indexed _operator, address indexed _from, address indexed _to, uint256[] _ids, uint256[] _values)
                 let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
-                emitEvent(signatureHash, operator, from, to, 0, 0) // how to pass arrays?
+                
+                let oldMemoryPointer := mload(0x40)
+                let memoryPointer := oldMemoryPointer
+
+                let tokenIdsOffsetPointer := memoryPointer
+                let amountsOffsetPointer := add(tokenIdsPointer, 0x20)
+
+                mstore(tokenIdsPointer, 0x40)
+
+                let amountsPointer := copyArrayToMemory(add(memoryPointer, 0x40), tokenIds)
+
+                mstore(amountsOffsetPointer, sub(amountsPointer, memoryPointer))
+
+                let endMemoryPointer := copyArrayToMemory(amountsPointer, amounts)
+
+                log4(oldMemoryPointer, sub(endMemoryPointer, oldMemoryPointer), signatureHash, spender, from, to)
+
+                mstore(0x40, endMemoryPointer)
             }
       
-            function emitApprovalForAll(owner, operator, approved) {
+            function emitApprovalForAll(owner, spender, approved) {
+                // event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved)
                 let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
-                emitEvent(signatureHash, owner, operator, 0, approved, 0)
-            }
-
-
-            function emitEvent(signatureHash, indexed_1, indexed_2, indexed_3, nonIndexed_1, nonIndexed_2) {
-                mstore(0, nonIndexed_1)
-                mstore(0x20, nonIndexed_2)
-                log4(0, 0x40, signatureHash, indexed_1, indexed_2, indexed_3)
+                mstore(0x00, approved)
+                log3(0x00, 0x20, signatureHash, owner, spender)
             }
 
             // ============ Storage layout ============ //
@@ -297,9 +336,7 @@ object "ERC1155" {
             }
 
             function allowanceStorageOffset(account, spender) -> offset {
-                // We hash account + 1 , spender
-                offset := add(0x1, account)
-                mstore(0, offset)
+                mstore(0, account)
                 mstore(0x20, spender)
                 offset := keccak256(0, 0x40)
             }
@@ -310,20 +347,97 @@ object "ERC1155" {
                 result := sload(ownerPos())
             }
 
-            function balanceOf(account, tokenId) -> balance {
-                balance := sload(balanceOfStorageOffset(account, tokenId))
-            }
+            // ============ Internal functions ============ //
 
-            function addToBalance(account, tokenId, amount) {
+            function _addToBalance(account, tokenId, amount) {
                 let offset := balanceOfStorageOffset(account, tokenId)
-                sstore(offset, safeAdd(sload(offset), amount))
+                let balance := sload(offset)
+                sstore(offset, safeAdd(balance, amount))
             }
 
-            function deductFromBalance(account, tokenId, amount) {
+            function _deductFromBalance(account, tokenId, amount) {
                 let offset := balanceOfStorageOffset(account, tokenId)
                 let balance := sload(offset)
                 require(lte(amount, balance))
                 sstore(offset, sub(balance, amount))
+            }
+
+            function _transferChecks(spender, from, to, tokenId, amount, dataOffset) {
+                // Check if recipient is a contract
+                if gt(extCodesize(to), 0) {
+                    // If so, check if it implements ERC1155TokenReceiver
+                    let onERC1155ReceivedSelector := 0xf23a6e6100000000000000000000000000000000000000000000000000000000
+
+                    let oldMemoryPointer := mload(0x40)
+                    let memoryPointer := oldMemoryPointer
+
+                    mstore(memoryPointer, onERC1155ReceivedSelector)
+                    mstore(add(memoryPointer, 0x04), spender)
+                    mstore(add(memoryPointer, 0x24), from)
+                    mstore(add(memoryPointer, 0x44), tokenId)
+                    mstore(add(memoryPointer, 0x64), amount)
+                    mstore(add(memoryPointer, 0x84), 0xa0) 
+
+                    let endMemoryPointer := copyBytesToMemory(add(memoryPointer, 0xa4), dataOffset)
+                    mstore(0x40, endMemoryPointer)
+
+                    // Call fail
+                    mstore(0x00, 0) // clear memory
+                    if require(call(gas(), to, 0, oldMemoryPointer, sub(endMemoryPointer, oldMemoryPointer), 0x00, 0x04)) {
+                        if gt(returndatasize(), 0x04) {
+                            returndatacopy(0x00, 0, returndatasize())
+                            revert(0x00, returndatasize())
+                        }
+                        revert(0, 0)
+                    }
+
+                    // Does not implement ERC1155TokenReceiver
+                    if require(eq(onERC1155ReceivedSelector, mload(0))) {
+                        revert(0, 0)
+                    }
+                }
+                
+            }
+
+            function _batchTransferChecks(spender, from, to, tokenIds, amounts, dataOffset) {
+                // Check if recipient is a contract
+                if gt(extCodesize(to), 0) {
+                    // If so, check if it implements ERC1155BatchTokenReceiver
+                    let onERC1155BatchReceivedSelector := 0xbc197c8100000000000000000000000000000000000000000000000000000000
+
+                    let oldMemoryPointer := mload(0x40)
+                    let memoryPointer := oldMemoryPointer
+
+                    mstore(memoryPointer, onERC1155BatchReceivedSelector)
+                    mstore(add(memoryPointer, 0x04), spender)
+                    mstore(add(memoryPointer, 0x24), from)
+                    mstore(add(memoryPointer, 0x44), 0xa0) 
+
+                    let amountsPointer := copyArrayToMemory(add(memoryPointer, 0xa4), tokenIds)
+                    mstore(add(memoryPointer, 0x64), sub(amountsPointer, oldMemoryPointer), 4)
+
+                    let dataPointer := copyArrayToMemory(amountsPointer, amounts)
+                    mstore(add(memoryPointer, 0x84), sub(sub(dataPointer, oldMemoryPointer), 4))
+
+                    let endMemoryPointer := copyBytesToMemory(dataPointer, dataOffset)
+                    mstore(0x40, endMemoryPointer)
+
+                    // Call fail
+                    mstore(0x00, 0) // clear memory
+                    if require(call(gas(), to, 0, oldMemoryPointer, sub(endMemoryPointer, oldMemoryPointer), 0x00, 0x04)) {
+                        if gt(returndatasize(), 0x04) {
+                            returndatacopy(0x00, 0, returndatasize())
+                            revert(0x00, returndatasize())
+                        }
+                        revert(0, 0)
+                    }
+
+                    // Does not implement ERC1155TokenReceiver
+                    if require(eq(onERC1155BatchReceivedSelector, mload(0))) {
+                        revert(0, 0)
+                    }
+                }
+                
             }
 
             // ============ Helper functions ============ //
@@ -341,6 +455,34 @@ object "ERC1155" {
 
             function calledByOwner() -> isOwner {
                 isOwner := eq(owner(), caller())
+            }
+
+            function copyBytesToMemory(memoryPointer, dataOffset) -> newMemoryPointer {
+                let dataLengthOffset := add(dataOffset, 0x04)
+                let dataLength := calldataload(dataLengthOffset)
+
+                let totalLength := add(dataLength, 0x20)
+                let remainder := mod(dataLength, 0x20)
+
+                if remainder {
+                    totalLength := add(totalLength, sub(0x20, remainder))
+                }
+
+                calldatacopy(memoryPointer, dataLengthOffset, totalLength)
+
+                newMemoryPointer := add(memoryPointer, totalLength)
+
+            }
+
+            function copyArrayToMemory(memoryPointer, arrayOffset) -> newMemoryPointer {
+                let arrayLengthOffset := add(arrayOffset, 0x04)
+                let arrayLength := calldataload(arrayLengthOffset)
+
+                let totalLength := add(0x20, mul(arrayLength, 0x20))
+                calldatacopy(memoryPointer, arrayLengthOffset, totalLength)
+
+                newMemoryPointer := add(memoryPointer, totalLength)
+
             }
 
             function require(condition) {
