@@ -15,7 +15,9 @@ object "ERC1155" {
             mstore(0x40, 0x80) // Free memory pointer
 
             // Dont accept ether
-            require(iszero(callvalue()))
+            if require(iszero(callvalue())) {
+                revert(0, 0)
+            }
 
             // ============ Function dispatcher ============ //
             switch selector()
@@ -23,7 +25,7 @@ object "ERC1155" {
             // ============ Balances ============ //
             case 0x00fdd58e {
                 // balanceOf(address user,uint256 id)
-                returnUint(balanceOf(decodeAddress(0), decodeAsUint(1)))
+                returnUint(balanceOf(decodeAsAddress(0), decodeAsUint(1)))
 
             }
             case 0x4e1273f4 {
@@ -45,7 +47,7 @@ object "ERC1155" {
             // ============ Transfers ============ //
             case 0xf242432a {
                 // safeTransferFrom(address token, address to, uint256 id,uint256 amount, bytes data)
-                safeTransferFrom(decodeAsAddress(0), decodeAssAddress(1), decodeAsUint(2), decodeAsUint(3), decodeAsUint(4))
+                safeTransferFrom(decodeAsAddress(0), decodeAsAddress(1), decodeAsUint(2), decodeAsUint(3), decodeAsUint(4))
             }
             case 0x2eb2c2d6 {
                 // safeBatchTransferFrom(address, address, uint256[],uint256[],bytes)
@@ -55,21 +57,21 @@ object "ERC1155" {
             // ============ Minting ============ //
             case 0x731133e9 {
                 // mint(address to,uint256 id,uint256 value, bytes data)
-                mint(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2), decodeAsUint(3))
+                mint(decodeAsAddress(0), decodeAsUint(1), decodeAsUint(2), decodeAsUint(3))
             }
             case 0x1f7fdffa {
                 // mintBatch(address to,uint256[] id,uint256[] value, bytes data)
-                mintBatch(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2), decodeAsUint(3))
+                mintBatch(decodeAsAddress(0), decodeAsUint(1), decodeAsUint(2), decodeAsUint(3))
             }
 
             // ============ Burning ============ //
             case 0xf5298aca {
                 // burn(address from, uint256 id,uint256 value)
-                burn(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
+                burn(decodeAsAddress(0), decodeAsUint(1), decodeAsUint(2))
             }
             case 0x6b20c454 {
                 // burnBatch(address from, uint256[] id,uint256[] value)
-                burnBatch(decodeAsAddress(0), decodeAsUint(1). decodeAsUint(2))
+                burnBatch(decodeAsAddress(0), decodeAsUint(1), decodeAsUint(2))
             }
 
             // ============ Misc ============ //
@@ -92,12 +94,8 @@ object "ERC1155" {
 
             // ============ Balances ============ //
 
-            function balanceOf(account, tokenId) -> balance {
-                if require(account) {
-                    revertIfZeroAddress(account)
-                }
-
-                balance := sload(balanceOfStorageOffset(account, tokenId))
+            function balanceOf(account, tokenId) -> accountBalance {
+                accountBalance := sload(balanceOfStorageOffset(account, tokenId))
             }
 
             function balanceOfBatch(addresses, tokenIds) {
@@ -145,7 +143,7 @@ object "ERC1155" {
 
                 let offset := allowanceStorageOffset(caller(), spender)
                 sstore(offset, approved)
-                emitApprovalForAll(caller(), spender, approved)
+                // emitApprovalForAll(caller(), spender, approved)
             }
 
             // ============ Transfers ============ //
@@ -157,8 +155,9 @@ object "ERC1155" {
                     revert(0, 0) // caller is not approved. Caller is not from
                 }
 
-                revertIfZeroAddress(from)
-                revertIfZeroAddress(to)
+                if require(to) {
+                    revertNoTransferToZeroAddress()
+                }
 
                 let fromBalance := sload(balanceOfStorageOffset(from, tokenId))
 
@@ -172,7 +171,9 @@ object "ERC1155" {
             }
 
             function safeBatchTransferFrom(from, to, tokenIds, amounts, dataOffset) {
-                revertIfZeroAddress(to)
+                if require(to) {
+                    revertNoTransferToZeroAddress()
+                }
 
                 let spender := caller()
 
@@ -209,7 +210,9 @@ object "ERC1155" {
             // ============ Minting ============ //
 
             function mint(to, tokenId, amount, dataOffset) {
-                revertIfZeroAddress(to)
+                if require(to) {
+                    revertNoMintToZeroAddress()
+                }
 
                 _addToBalance(to, tokenId, amount)
 
@@ -219,7 +222,10 @@ object "ERC1155" {
             }
 
             function mintBatch(to, tokenIds, amounts, dataOffset) {
-                revertIfZeroAddress(to)
+                if require(to) {
+                    revertNoMintToZeroAddress()
+                }
+
 
                 let tokenIdsLength := calldataload(add(0x04, tokenIds))
                 let amountsLength := calldataload(add(0x04, amounts))
@@ -249,7 +255,9 @@ object "ERC1155" {
             // ============ Burning ============ //
 
             function burn(from, tokenId, amount) {
-                revertIfZeroAddress(from)
+                if require(from) {
+                    revertNoBurnFromZeroAddress()
+                }
 
                 _deductFromBalance(from, tokenId, amount)
 
@@ -257,7 +265,9 @@ object "ERC1155" {
             }
 
             function burnBatch(from, tokenIds, amounts) {
-                revertIfZeroAddress(from)
+                if require(from) {
+                    revertNoBurnFromZeroAddress()
+                }
 
                 let tokenIdsLength := calldataload(add(0x04, tokenIds))
                 let amountsLength := calldataload(add(0x04, amounts))
@@ -279,7 +289,7 @@ object "ERC1155" {
                     _deductFromBalance(from, tokenId, amount)
                 }
 
-                emitTransferBatch(caller(), 0, to, tokenIds, amounts)               
+                emitTransferBatch(caller(), 0, from, tokenIds, amounts)               
             }
 
             // ============ Misc ============ //
@@ -294,7 +304,7 @@ object "ERC1155" {
                 result := or(eq(interfaceId, IERC1155InterfaceId), or(eq(interfaceId, IERC1155MetdataURIInterfaceId), eq(interfaceId, IERC165InterfaceId)))
             }
 
-            function uri(tokenId) -> {
+            function uri(tokenId) {
                 let oldMemoryPointer := mload(0x40)
                 let memoryPointer := oldMemoryPointer
 
@@ -344,20 +354,20 @@ object "ERC1155" {
 
             function _addToBalance(account, tokenId, amount) {
                 let offset := balanceOfStorageOffset(account, tokenId)
-                let balance := sload(offset)
-                sstore(offset, safeAdd(balance, amount))
+                let bal := sload(offset)
+                sstore(offset, safeAdd(bal, amount))
             }
 
             function _deductFromBalance(account, tokenId, amount) {
                 let offset := balanceOfStorageOffset(account, tokenId)
-                let balance := sload(offset)
-                require(lte(amount, balance))
-                sstore(offset, sub(balance, amount))
+                let bal := sload(offset)
+                // require(lte(amount, bal))
+                sstore(offset, sub(bal, amount))
             }
 
             function _transferChecks(spender, from, to, tokenId, amount, dataOffset) {
                 // Check if recipient is a contract
-                if gt(extCodesize(to), 0) {
+                if gt(extcodesize(to), 0) {
                     // If so, check if it implements ERC1155TokenReceiver
                     let onERC1155ReceivedSelector := 0xf23a6e6100000000000000000000000000000000000000000000000000000000
 
@@ -394,7 +404,7 @@ object "ERC1155" {
 
             function _batchTransferChecks(spender, from, to, tokenIds, amounts, dataOffset) {
                 // Check if recipient is a contract
-                if gt(extCodesize(to), 0) {
+                if gt(extcodesize(to), 0) {
                     // If so, check if it implements ERC1155BatchTokenReceiver
                     let onERC1155BatchReceivedSelector := 0xbc197c8100000000000000000000000000000000000000000000000000000000
 
@@ -407,7 +417,7 @@ object "ERC1155" {
                     mstore(add(memoryPointer, 0x44), 0xa0) 
 
                     let amountsPointer := copyArrayToMemory(add(memoryPointer, 0xa4), tokenIds)
-                    mstore(add(memoryPointer, 0x64), sub(amountsPointer, oldMemoryPointer), 4)
+                    mstore(add(memoryPointer, 0x64), sub(sub(amountsPointer, oldMemoryPointer), 4))
 
                     let dataPointer := copyArrayToMemory(amountsPointer, amounts)
                     mstore(add(memoryPointer, 0x84), sub(sub(dataPointer, oldMemoryPointer), 4))
@@ -449,7 +459,7 @@ object "ERC1155" {
 
             function decodeAsAddress(offset) -> result {
                 result := decodeAsUint(offset)
-                if iszero(iszero(and(v, not(0xffffffffffffffffffffffffffffffffffffffff)))) {
+                if iszero(iszero(and(result, not(0xffffffffffffffffffffffffffffffffffffffff)))) {
                     revert(0, 0)
                 }
             }
@@ -457,12 +467,12 @@ object "ERC1155" {
             function decodeAsBool(offset) -> result {
                 let x := decodeAsUint(offset)
 
-                if eq(val, 0x0000000000000000000000000000000000000000000000000000000000000000) {
+                if eq(x, 0x0000000000000000000000000000000000000000000000000000000000000000) {
                     result := x
                     leave
                 }
 
-                if eq(val, 0x0000000000000000000000000000000000000000000000000000000000000001) {
+                if eq(x, 0x0000000000000000000000000000000000000000000000000000000000000001) {
                     result := x
                     leave
                 }
@@ -522,7 +532,7 @@ object "ERC1155" {
 
             function safeAdd(x, y) -> result {
                 result := add(x, y)
-                if or(lt(result, a), lt(result, y)) {
+                if or(lt(result, x), lt(result, y)) {
                     revert(0, 0)
                 }
             }
@@ -559,14 +569,48 @@ object "ERC1155" {
 
             }
 
-            function require(condition) {
-                if iszero(condition) {
-                    revert(0, 0)
-                }
+            // function require(condition) {
+            //     if iszero(condition) {
+            //         revert(0, 0)
+            //     }
+            // }
+
+            function require(condition) -> result {
+                result := iszero(condition)
             }
 
-            function revertIfZeroAddress(address) {
-                require(addrress)
+            // function revertIfZeroAddress(addr) {
+            //     require(addr)
+            // }
+
+            function revertNoMintToZeroAddress() {
+                let memoryPointer := 0x80
+                mstore(memoryPointer, 0x8c379a000000000000000000000000000000000000000000000000000000000)
+                mstore(add(memoryPointer, 0x04), 0x20)
+                mstore(add(memoryPointer, 0x24), 33)
+                mstore(add(memoryPointer, 0x44), 0x455243313135353a206d696e7420746f20746865207a65726f20616464726573)
+                mstore(add(memoryPointer, 0x64), 0x7300000000000000000000000000000000000000000000000000000000000000)
+                revert(memoryPointer, 0x84)
+            }
+
+            function revertNoTransferToZeroAddress() {
+                let memoryPointer := 0x80
+                mstore(memoryPointer, 0x8c379a000000000000000000000000000000000000000000000000000000000)
+                mstore(add(memoryPointer, 0x04), 0x20)
+                mstore(add(memoryPointer, 0x24), 37)
+                mstore(add(memoryPointer, 0x44), 0x455243313135353a207472616e7366657220746f20746865207a65726f206164)
+                mstore(add(memoryPointer, 0x64), 0x6472657373000000000000000000000000000000000000000000000000000000)
+                revert(memoryPointer, 0x84)
+            }
+
+            function revertNoBurnFromZeroAddress() {
+                let memoryPointer := 0x00
+                mstore(memoryPointer, 0x8c379a000000000000000000000000000000000000000000000000000000000)
+                mstore(add(memoryPointer, 0x04), 0x20)
+                mstore(add(memoryPointer, 0x24), 35)
+                mstore(add(memoryPointer, 0x44), 0x455243313135353a206275726e2066726f6d20746865207a65726f2061646472)
+                mstore(add(memoryPointer, 0x64), 0x6573730000000000000000000000000000000000000000000000000000000000)
+                revert(memoryPointer, 0x84)
             }
 
             // ============ Events ============ //
@@ -587,9 +631,9 @@ object "ERC1155" {
                 let memoryPointer := oldMemoryPointer
 
                 let tokenIdsOffsetPointer := memoryPointer
-                let amountsOffsetPointer := add(tokenIdsPointer, 0x20)
+                let amountsOffsetPointer := add(memoryPointer, 0x20)
 
-                mstore(tokenIdsPointer, 0x40)
+                mstore(tokenIdsOffsetPointer, 0x40)
 
                 let amountsPointer := copyArrayToMemory(add(memoryPointer, 0x40), tokenIds)
 
@@ -602,12 +646,12 @@ object "ERC1155" {
                 mstore(0x40, endMemoryPointer)
             }
       
-            function emitApprovalForAll(owner, spender, approved) {
-                // event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved)
-                let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
-                mstore(0x00, approved)
-                log3(0x00, 0x20, signatureHash, owner, spender)
-            }           
+            // function emitApprovalForAll(owner, spender, approved) {
+            //     // event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved)
+            //     let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
+            //     mstore(0x00, approved)
+            //     log3(0x00, 0x20, signatureHash, owner, spender)
+            // }           
         }
     }
 }
