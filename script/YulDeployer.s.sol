@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
+import "forge-std/Script.sol";
 
-contract YulDeployer is Test {
+contract YulDeployer is Script {
+    function run() public returns (address) {
+        return deployContract("ERC1155");
+    }
+
     ///@notice Compiles a Yul contract and returns the address that the contract was deployed to
     ///@notice If deployment fails, an error will be thrown
     ///@param fileName - The file name of the Yul contract. For example, the file name for "Example.yul" is "Example"

@@ -134,7 +134,7 @@ contract ERC1155Test is DSTestPlus, ERC1155TokenReceiver {
         // token = new MockERC1155();
 
         yulDeployer = new YulDeployer();
-        token = IERC1155(yulDeployer.deployContract("ERC1155"));
+        token = IERC1155(yulDeployer.run());
     }
 
     function testMintToEOA() public {
