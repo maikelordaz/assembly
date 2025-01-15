@@ -1,88 +1,84 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity >=0.8.0;
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.0;
 
 interface IERC1155 {
     event TransferSingle(
-        address indexed operator,
-        address indexed from,
-        address indexed to,
-        uint256 id,
-        uint256 value
+        address indexed _operator,
+        address indexed _from,
+        address indexed _to,
+        uint256 _id,
+        uint256 _value
     );
 
     event TransferBatch(
-        address indexed operator,
-        address indexed from,
-        address indexed to,
-        uint256[] ids,
-        uint256[] values
+        address indexed _operator,
+        address indexed _from,
+        address indexed _to,
+        uint256[] _ids,
+        uint256[] _values
     );
 
     event ApprovalForAll(
-        address indexed owner,
-        address indexed operator,
-        bool approved
+        address indexed _owner,
+        address indexed _operator,
+        bool _approved
     );
 
-    function balanceOf(
-        address owner,
-        uint256 id
-    ) external view returns (uint256);
-
-    function balanceOfBatch(
-        address[] memory owners,
-        uint256[] memory tokenIds
-    ) external view returns (uint256[] memory balances);
-
-    function isApprovedForAll(
-        address owner,
-        address spender
-    ) external view returns (bool);
-
-    function setApprovalForAll(address operator, bool approved) external;
+    event URI(string _value, uint256 indexed _id);
 
     function safeTransferFrom(
-        address token,
-        address from,
-        address to,
-        uint256 id,
-        uint256 amount,
-        bytes calldata data
+        address _from,
+        address _to,
+        uint256 _id,
+        uint256 _value,
+        bytes calldata _data
     ) external;
 
     function safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes calldata data
+        address _from,
+        address _to,
+        uint256[] calldata _ids,
+        uint256[] calldata _values,
+        bytes calldata _data
     ) external;
+
+    function balanceOf(
+        address _owner,
+        uint256 _id
+    ) external view returns (uint256);
+
+    function balanceOfBatch(
+        address[] calldata _owners,
+        uint256[] calldata _ids
+    ) external view returns (uint256[] memory);
+
+    function setApprovalForAll(address _operator, bool _approved) external;
+
+    function isApprovedForAll(
+        address _owner,
+        address _operator
+    ) external view returns (bool);
 
     function mint(
         address to,
         uint256 id,
-        uint256 amount,
-        bytes calldata data
+        uint256 value,
+        bytes memory data
     ) external;
 
     function mintBatch(
         address to,
         uint256[] memory id,
         uint256[] memory value,
-        bytes calldata data
+        bytes memory data
     ) external;
 
-    function burn(address from, uint256 id, uint256 amount) external;
+    function burn(address from, uint256 id, uint256 value) external;
 
     function burnBatch(
         address from,
         uint256[] memory id,
         uint256[] memory value
     ) external;
-
-    function supportsInterface(bytes4 interfaceID) external view returns (bool);
-
-    function uri(uint256 id) external view returns (string memory);
-
-    function setURI(string memory) external;
 }
